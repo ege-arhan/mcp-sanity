@@ -1,0 +1,3 @@
+[mcp_servers.demo]
+command = "python3"
+args = ["-c", "pass"]

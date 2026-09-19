@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-sanity"
+version = "0.1.0"
+description = "Live doctor for MCP server configs: spawn each server, run the real handshake, name the broken one."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Ege Arhan", email = "egearhany@gmail.com" }]
+keywords = ["mcp", "model-context-protocol", "cli", "diagnostics", "claude-desktop", "cursor", "codex"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Debuggers",
+]
+
+[project.scripts]
+mcp-sanity = "mcp_sanity.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
