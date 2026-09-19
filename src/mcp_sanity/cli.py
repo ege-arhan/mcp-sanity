@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, discover, fix, probe
+from . import __version__, discover, fix, http_probe, probe
 
 ICON = {
     "OK": "✔",
@@ -18,20 +18,27 @@ ICON = {
     "BAD_JSON": "✖",
     "EMPTY_RESPONSE": "✖",
     "TOOL_ERROR": "⚠",
+    "HTTP_UNREACHABLE": "✖",
+    "HTTP_STATUS": "✖",
+    "HTTP_TIMEOUT": "⏱",
+    "HTTP_BAD_JSONRPC": "✖",
 }
 EXIT_FOR = {
     "OK": 0, "MISSING_BIN": 2, "NOT_EXECUTABLE": 2, "PROCESS_EXIT": 2,
     "HANDSHAKE_TIMEOUT": 3, "BAD_JSON": 3, "EMPTY_RESPONSE": 3, "TOOL_ERROR": 3,
+    "HTTP_UNREACHABLE": 2, "HTTP_STATUS": 3, "HTTP_TIMEOUT": 3, "HTTP_BAD_JSONRPC": 3,
 }
 
 
 def run(servers, timeout, use_json):
     results: list[tuple] = []
+    def _run(s):
+        if not s.command and s.url and s.url.startswith(("http://", "https://")):
+            return http_probe.probe_url(s.url, timeout)
+        return probe.probe_server(s.command, s.args, s.env, timeout)
+
     with cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(servers) or 1))) as pool:
-        futs = {
-            pool.submit(probe.probe_server, s.command, s.args, s.env, timeout): s
-            for s in servers
-        }
+        futs = {pool.submit(_run, s): s for s in servers}
         for fut in cf.as_completed(futs):
             results.append((futs[fut], fut.result()))
     results.sort(key=lambda r: (r[0].client, r[0].name))
@@ -44,7 +51,7 @@ def run(servers, timeout, use_json):
         exit_code = max(exit_code, EXIT_FOR.get(r.status, 4))
         rows.append({
             "client": s.client, "name": s.name, "config": s.config,
-            "command": " ".join(filter(None, [s.command, *s.args])),
+            "command": " ".join(filter(None, [s.command, *s.args])) or s.url or "",
             "status": r.status, "detail": r.detail, "tools": r.tools,
             "hint": hint, "ms": r.ms,
         })

@@ -64,17 +64,21 @@ Exit codes: `0` all healthy · `2` server can't start (missing binary / crashes)
 | `BAD_JSON` | log/print noise on stdout | stdout must carry JSON-RPC only |
 | `EMPTY_RESPONSE` | closed stdout without replying | check args |
 | `TOOL_ERROR` | `tools/list` rejected | server-side schema bug |
+| `HTTP_UNREACHABLE` | remote `url` not reachable (refused/DNS/TLS) | server down, port/host/VPN |
+| `HTTP_STATUS` | non-200 from remote `url` | 401/403 auth, 404 path (usually ends `/mcp`) |
+| `HTTP_TIMEOUT` | remote `url` too slow | check endpoint, `--timeout 30` |
+| `HTTP_BAD_JSONRPC` | HTTP 200 but no JSON-RPC | endpoint not MCP, check url |
 
 Config warnings: unresolved `$ENV` placeholders, plaintext-looking secrets in `env`, duplicate command+args across servers.
 
 ## Supported configs
 
-`~/.cursor/mcp.json` · Claude Desktop `claude_desktop_config.json` (macOS + Linux paths) · `~/.codex/config.toml` `[mcp_servers]` · opencode `mcp` (string commands) · project `.mcp.json`. Anything with the `mcpServers` object shape works via `--config`.
+`~/.cursor/mcp.json` · Claude Desktop `claude_desktop_config.json` (macOS + Linux paths) · `~/.codex/config.toml` `[mcp_servers]` · opencode `mcp` (string commands) · project `.mcp.json`. Anything with the `mcpServers` object shape works via `--config`. Entries with a remote `url` (Streamable HTTP, plain JSON or SSE) are probed over HTTP; stdio `command` entries are spawned locally.
 
 ## Development
 
 ```bash
-python3 tests/selfcheck.py   # 7 assertion groups, no frameworks
+python3 tests/selfcheck.py   # 8 assertion groups, no frameworks
 ```
 
 MIT © Ege Arhan

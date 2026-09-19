@@ -45,6 +45,25 @@ def fix_hint(server, result):
         return "Sunucu stdout'u cevap vermeden kapattı. Komut argümanlarını kontrol et: `" + " ".join(filter(None, [server.command, *server.args])) + "`"
     if st == "TOOL_ERROR":
         return f"Sunucu initialize'ı geçti ama tools/list reddetti: {result.detail[:120]}"
+    if st == "HTTP_UNREACHABLE":
+        return ("Uzak sunucuya ulaşılamıyor (bağlantı reddi/DNS/TLS). "
+                "Sunucunun çalıştığını, port/host ve VPN'i kontrol et")
+    if st == "HTTP_STATUS":
+        d = result.detail
+        code = d.split(";", 1)[0].strip()
+        if "401" in code or "403" in code:
+            return (f"{code}: auth gerekli. Config'e Authorization header/token ekle "
+                    f"(Bearer anahtar eksik olabilir); detay: {d[:120]}")
+        if "404" in code:
+            return ("404: path yanlış. Streamable HTTP endpoint genelde /mcp ile biter "
+                    "(örn. https://host/mcp); url'yi düzelt")
+        return f"{code}: uzak sunucu HTTP hatası döndü; gövde: {d[:150]}"
+    if st == "HTTP_TIMEOUT":
+        return ("Uzak sunucu zamanında cevap vermedi. /mcp endpoint'ini ve "
+                "`--timeout 30` ile tekrar dene")
+    if st == "HTTP_BAD_JSONRPC":
+        return ("HTTP 200 ama gövde JSON-RPC değil. Endpoint MCP konuşmuyor olabilir; "
+                f"url'yi kontrol et: {result.detail[:120]}")
     return None
 
 
