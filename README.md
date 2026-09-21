@@ -50,8 +50,16 @@ Exit codes: `0` all healthy · `2` server can't start (missing binary / crashes)
 ### GitHub Action
 
 ```yaml
-- run: pipx install mcp-sanity && mcp-sanity --config .mcp.json --timeout 30
+- uses: ege-arhan/mcp-sanity@v0.1.0
+  with:
+    config: .mcp.json
+    timeout: "30"
+    sarif: mcp-sanity.sarif
+    upload-sarif: "true"   # needs security-events: write
 ```
+
+Exit-code gate without the action: `pipx run mcp-sanity --config .mcp.json --timeout 30`.
+SARIF report for code scanning: `mcp-sanity --config .mcp.json --sarif results.sarif`.
 
 ## What it detects
 

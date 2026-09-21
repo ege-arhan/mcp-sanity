@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from mcp_sanity import discover, fix, http_probe, probe  # noqa: E402
+from mcp_sanity.sarif import to_sarif  # noqa: E402
 
 FX = ROOT / "tests" / "fixtures"
 PY = sys.executable
@@ -170,7 +171,35 @@ def main():
     assert h, h
     srv.shutdown()
 
-    print("selfcheck: 8/8 groups passed")
+    # 9) sarif: rules + results, CLI --sarif writes file
+    rows = [
+        {"client": "cursor", "name": "ghost", "config": str(good),
+         "command": "x", "status": "MISSING_BIN", "detail": "'x' not found",
+         "tools": [], "hint": "kur", "ms": 1},
+        {"client": "cursor", "name": "ok", "config": str(good),
+         "command": "y", "status": "OK", "detail": "2 tool(s)",
+         "tools": ["a"], "hint": None, "ms": 2},
+    ]
+    doc = to_sarif(rows, ["cursor/ok: env uyarisi"])
+    assert doc["version"] == "2.1.0", doc
+    assert doc["runs"][0]["tool"]["driver"]["name"] == "mcp-sanity"
+    ids = {r["ruleId"] for r in doc["runs"][0]["results"]}
+    assert ids == {"MISSING_BIN", "CONFIG_WARNING"}, ids
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(good),
+                           "--timeout", "3", "--sarif", str(FX / "out.sarif")],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    assert proc.returncode in (2, 3), (proc.returncode, proc.stdout)
+    sarif_doc = json.loads((FX / "out.sarif").read_text())
+    assert sarif_doc["runs"][0]["results"], sarif_doc
+    (FX / "out.sarif").unlink(missing_ok=True)
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(only_good),
+                           "--timeout", "5", "--sarif", str(FX / "ok.sarif")],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert json.loads((FX / "ok.sarif").read_text())["runs"][0]["results"] == []
+    (FX / "ok.sarif").unlink(missing_ok=True)
+
+    print("selfcheck: 9/9 groups passed")
 
 
 if __name__ == "__main__":

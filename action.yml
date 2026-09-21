@@ -1,0 +1,59 @@
+name: "mcp-sanity"
+description: "Live doctor for MCP server configs: spawn each server, run the real handshake, fail CI on broken ones."
+author: "Ege Arhan"
+branding:
+  icon: "activity"
+  color: "green"
+
+inputs:
+  config:
+    description: "Config file(s) to check, comma-separated. Empty = auto-discover."
+    required: false
+    default: ""
+  timeout:
+    description: "Per-server probe timeout in seconds."
+    required: false
+    default: "10"
+  sarif:
+    description: "Write SARIF 2.1.0 report to this path (for code scanning upload)."
+    required: false
+    default: ""
+  upload-sarif:
+    description: "Upload the SARIF report to GitHub code scanning (needs security-events: write)."
+    required: false
+    default: "false"
+  fail-on-warning:
+    description: "Exit non-zero when only config warnings are found (still healthy servers)."
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run mcp-sanity
+      shell: bash
+      run: |
+        ARGS=()
+        if [ -n "${{ inputs.config }}" ]; then
+          IFS=',' read -ra CFGS <<< "${{ inputs.config }}"
+          for c in "${CFGS[@]}"; do ARGS+=(--config "$(echo "$c" | xargs)"); done
+        fi
+        ARGS+=(--timeout "${{ inputs.timeout }}")
+        if [ -n "${{ inputs.sarif }}" ]; then ARGS+=(--sarif "${{ inputs.sarif }}"); fi
+        pipx run --spec "${{ github.action_path }}" mcp-sanity "${ARGS[@]}"
+        CODE=$?
+        if [ "${{ inputs.fail-on-warning }}" = "true" ] && [ "$CODE" -eq 0 ]; then
+          if python3 -c "import json,sys; d=json.load(open('${{ inputs.sarif }}')) if '${{ inputs.sarif }}' else {}; sys.exit(0 if not (d.get('runs') or [{}])[0].get('results') else 1)" 2>/dev/null; then
+            :
+          else
+            echo "mcp-sanity: config warnings found (fail-on-warning=true)"
+            exit 1
+          fi
+        fi
+        exit "$CODE"
+
+    - name: Upload SARIF to code scanning
+      if: inputs.upload-sarif == 'true' && inputs.sarif != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif }}

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, discover, fix, http_probe, probe
+from .sarif import to_sarif
 
 ICON = {
     "OK": "✔",
@@ -30,7 +31,7 @@ EXIT_FOR = {
 }
 
 
-def run(servers, timeout, use_json):
+def run(servers, timeout, use_json, sarif_path=None):
     results: list[tuple] = []
     def _run(s):
         if not s.command and s.url and s.url.startswith(("http://", "https://")):
@@ -55,6 +56,10 @@ def run(servers, timeout, use_json):
             "status": r.status, "detail": r.detail, "tools": r.tools,
             "hint": hint, "ms": r.ms,
         })
+
+    if sarif_path:
+        Path(sarif_path).write_text(json.dumps(to_sarif(rows, warnings),
+                                                ensure_ascii=False, indent=2) + "\n")
 
     if use_json:
         print(json.dumps({"version": __version__, "servers": rows,
@@ -89,6 +94,8 @@ def main(argv=None):
                     help="Ek config dosyası (tekrarlanabilir). Yoksa otomatik keşif.")
     ap.add_argument("--timeout", type=float, default=10.0)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--sarif", metavar="FILE", default=None,
+                    help="SARIF 2.1.0 raporu yaz (GitHub code scanning).")
     ap.add_argument("--version", action="version", version=f"mcp-sanity {__version__}")
     args = ap.parse_args(argv)
 
@@ -110,13 +117,16 @@ def main(argv=None):
                     print(f"⚠ {path} okunamadı: {exc}", file=sys.stderr)
 
     if not servers:
+        if args.sarif:
+            Path(sarif_path).write_text(json.dumps(to_sarif([], []),
+                                                    ensure_ascii=False, indent=2) + "\n")
         if args.json:
             print(json.dumps({"version": __version__, "servers": [],
                               "warnings": [], "exit_code": 0}))
         else:
             print("Hiç MCP config/server bulunamadı. --config ile dosya göster.")
         return 0
-    return run(servers, args.timeout, args.json)
+    return run(servers, args.timeout, args.json, args.sarif)
 
 
 if __name__ == "__main__":
