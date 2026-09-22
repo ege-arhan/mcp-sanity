@@ -43,6 +43,8 @@ mcp-sanity                     # auto-discover known client configs
 mcp-sanity --config my.json    # check specific files (repeatable; .json or .toml)
 mcp-sanity --timeout 30        # slow startup (npx cold install)
 mcp-sanity --json              # machine-readable, for CI
+mcp-sanity --only brave-search # tek server (isim, client/name veya glob)
+mcp-sanity --only cursor/* --skip "*notes*"  # glob + atlama
 ```
 
 Exit codes: `0` all healthy · `2` server can't start (missing binary / crashes) · `3` starts but speaks no MCP (timeout, non-JSON stdout) · `4` usage error. CI gate: `mcp-sanity --json && echo all good`.

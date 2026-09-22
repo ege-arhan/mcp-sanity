@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from mcp_sanity import discover, fix, http_probe, probe  # noqa: E402
+from mcp_sanity.cli import select_servers  # noqa: E402
 from mcp_sanity.sarif import to_sarif  # noqa: E402
 
 FX = ROOT / "tests" / "fixtures"
@@ -199,7 +200,28 @@ def main():
     assert json.loads((FX / "ok.sarif").read_text())["runs"][0]["results"] == []
     (FX / "ok.sarif").unlink(missing_ok=True)
 
-    print("selfcheck: 9/9 groups passed")
+    # 10) --only/--skip selectors: name, client/name, glob, skip-after-only
+    all3 = servers  # cursor: ok, ghost, noisy
+    assert [s.name for s in select_servers(all3, ["ok"])] == ["ok"]
+    assert [s.name for s in select_servers(all3, ["cursor/ok"])] == ["ok"]
+    assert [s.name for s in select_servers(all3, ["cursor/*"])] == ["ok", "ghost", "noisy"]
+    assert [s.name for s in select_servers(all3, ["ok,noisy"])] == ["ok", "noisy"]
+    assert [s.name for s in select_servers(all3, [], ["ghost"])] == ["ok", "noisy"]
+    assert [s.name for s in select_servers(all3, ["cursor/*"], ["*ghost*"])] == ["ok", "noisy"]
+    assert select_servers(all3, ["nope"]) == []
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(good),
+                           "--timeout", "5", "--only", "ok", "--json"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    data = json.loads(proc.stdout)
+    assert [r["name"] for r in data["servers"]] == ["ok"], data
+    assert proc.returncode == 0, (proc.returncode, proc.stdout)
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(good),
+                           "--timeout", "5", "--skip", "ghost,noisy", "--json"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    data = json.loads(proc.stdout)
+    assert [r["name"] for r in data["servers"]] == ["ok"], data
+
+    print("selfcheck: 10/10 groups passed")
 
 
 if __name__ == "__main__":

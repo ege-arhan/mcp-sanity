@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import fnmatch
 import json
 import sys
 from pathlib import Path
@@ -29,6 +30,29 @@ EXIT_FOR = {
     "HANDSHAKE_TIMEOUT": 3, "BAD_JSON": 3, "EMPTY_RESPONSE": 3, "TOOL_ERROR": 3,
     "HTTP_UNREACHABLE": 2, "HTTP_STATUS": 3, "HTTP_TIMEOUT": 3, "HTTP_BAD_JSONRPC": 3,
 }
+
+
+def _split_patterns(raw):
+    pats = []
+    for item in raw or []:
+        pats.extend(p.strip() for p in str(item).split(",") if p.strip())
+    return pats
+
+
+def _matches(server, pattern):
+    pat = pattern.strip().lower()
+    full = f"{server.client}/{server.name}".lower()
+    return (fnmatch.fnmatchcase(full, pat) or fnmatch.fnmatchcase(server.name.lower(), pat)
+            or fnmatch.fnmatchcase(server.client.lower(), pat))
+
+
+def select_servers(servers, only=(), skip=()):
+    only = _split_patterns(only if isinstance(only, (list, tuple)) else [only])
+    skip = _split_patterns(skip if isinstance(skip, (list, tuple)) else [skip])
+    sel = [s for s in servers if any(_matches(s, p) for p in only)] if only else list(servers)
+    if skip:
+        sel = [s for s in sel if not any(_matches(s, p) for p in skip)]
+    return sel
 
 
 def run(servers, timeout, use_json, sarif_path=None):
@@ -96,6 +120,10 @@ def main(argv=None):
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--sarif", metavar="FILE", default=None,
                     help="SARIF 2.1.0 raporu yaz (GitHub code scanning).")
+    ap.add_argument("--only", action="append", default=[],
+                    help="Yalniz bu server'lari denetle: 'client/name', 'name' veya glob (örn. 'cursor/*'). Tekrarlanabilir, virgulle de ayrilabilir.")
+    ap.add_argument("--skip", action="append", default=[],
+                    help="Bu server'lari atla: 'client/name', 'name' veya glob. --only'den sonra uygulanir.")
     ap.add_argument("--version", action="version", version=f"mcp-sanity {__version__}")
     args = ap.parse_args(argv)
 
@@ -116,9 +144,10 @@ def main(argv=None):
                 if not args.json:
                     print(f"⚠ {path} okunamadı: {exc}", file=sys.stderr)
 
+    servers = select_servers(servers, _split_patterns(args.only), _split_patterns(args.skip))
     if not servers:
         if args.sarif:
-            Path(sarif_path).write_text(json.dumps(to_sarif([], []),
+            Path(args.sarif).write_text(json.dumps(to_sarif([], []),
                                                     ensure_ascii=False, indent=2) + "\n")
         if args.json:
             print(json.dumps({"version": __version__, "servers": [],
