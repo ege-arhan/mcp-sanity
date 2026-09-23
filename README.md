@@ -79,7 +79,7 @@ SARIF report for code scanning: `mcp-sanity --config .mcp.json --sarif results.s
 | `HTTP_TIMEOUT` | remote `url` too slow | check endpoint, `--timeout 30` |
 | `HTTP_BAD_JSONRPC` | HTTP 200 but no JSON-RPC | endpoint not MCP, check url |
 
-Config warnings: unresolved `$ENV` placeholders, plaintext-looking secrets in `env`, duplicate command+args across servers.
+Config warnings: unresolved `$ENV` placeholders, empty/placeholder `env` values, known secret patterns (OpenAI/Anthropic/GitHub/AWS/Slack/Google, bearer) in `env`, `--token`-style secrets in `args`, credentials in `url` (userinfo or `?token=`), duplicate command+args across servers.
 
 ## Supported configs
 

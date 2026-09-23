@@ -221,7 +221,23 @@ def main():
     data = json.loads(proc.stdout)
     assert [r["name"] for r in data["servers"]] == ["ok"], data
 
-    print("selfcheck: 10/10 groups passed")
+    # 11) G5: env eksigi + secrets acik-key taramasi
+    mk = lambda n, **kw: discover.Server(n, "c.json", "cursor",
+        command=kw.get("command", "python3"), args=kw.get("args", []),
+        env=kw.get("env", {}), url=kw.get("url"))
+    assert any("bo\u015f" in w for w in fix.config_warnings([mk("e1", env={"A": ""})]))
+    assert any("placeholder" in w for w in fix.config_warnings([mk("e2", env={"A": "YOUR_API_KEY"})]))
+    assert any("OpenAI" in w for w in fix.config_warnings([mk("e3", env={"K": "sk-proj-abcdefghij1234567890XYZ"})]))
+    assert any("GitHub" in w for w in fix.config_warnings([mk("e4", env={"T": "ghp_abcdefghij1234567890"})]))
+    assert any("args" in w for w in fix.config_warnings([mk("e5", args=["--token", "abc"])]))
+    assert any("args" in w for w in fix.config_warnings([mk("e6", args=["--token=abc"])]))
+    assert any("g\u00f6m\u00fcl\u00fc" in w for w in fix.config_warnings([mk("e7", url="https://user:pass@host/mcp")]))
+    assert any("query" in w for w in fix.config_warnings([mk("e8", url="https://host/mcp?token=abc123")]))
+    # unresolved $VAR cift uyari vermez
+    w = fix.config_warnings([mk("ok", env={"A": "$MY_TOKEN"})])
+    assert len(w) == 1 and "TOKEN" not in w[0] or "A" in w[0], w
+
+    print("selfcheck: 11/11 groups passed")
 
 
 if __name__ == "__main__":
