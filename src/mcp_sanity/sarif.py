@@ -17,12 +17,13 @@ SHORT = {
     "HTTP_STATUS": "Remote MCP URL returned HTTP error",
     "HTTP_TIMEOUT": "Remote MCP URL timed out",
     "HTTP_BAD_JSONRPC": "Remote URL is not speaking JSON-RPC",
+    "FLAKY": "Server crashed on first attempt but passed on retry (intermittent)",
     "CONFIG_WARNING": "Suspicious config entry (env/secret/duplicate)",
 }
 
 
 def _level(rule: str) -> str:
-    return "warning" if rule in ("TOOL_ERROR", "CONFIG_WARNING") else "error"
+    return "warning" if rule in ("TOOL_ERROR", "CONFIG_WARNING", "FLAKY") else "error"
 
 
 def to_sarif(rows, warnings, version=__version__) -> dict:

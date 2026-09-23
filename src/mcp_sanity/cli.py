@@ -24,11 +24,13 @@ ICON = {
     "HTTP_STATUS": "✖",
     "HTTP_TIMEOUT": "⏱",
     "HTTP_BAD_JSONRPC": "✖",
+    "FLAKY": "⚠",
 }
 EXIT_FOR = {
     "OK": 0, "MISSING_BIN": 2, "NOT_EXECUTABLE": 2, "PROCESS_EXIT": 2,
     "HANDSHAKE_TIMEOUT": 3, "BAD_JSON": 3, "EMPTY_RESPONSE": 3, "TOOL_ERROR": 3,
     "HTTP_UNREACHABLE": 2, "HTTP_STATUS": 3, "HTTP_TIMEOUT": 3, "HTTP_BAD_JSONRPC": 3,
+    "FLAKY": 4,
 }
 
 
@@ -55,12 +57,17 @@ def select_servers(servers, only=(), skip=()):
     return sel
 
 
-def run(servers, timeout, use_json, sarif_path=None):
+def run(servers, timeout, use_json, sarif_path=None, retries=3):
     results: list[tuple] = []
-    def _run(s):
+    def _once(s):
         if not s.command and s.url and s.url.startswith(("http://", "https://")):
             return http_probe.probe_url(s.url, timeout)
         return probe.probe_server(s.command, s.args, s.env, timeout)
+
+    def _run(s):
+        if retries <= 1:
+            return _once(s)
+        return probe.retry_flaky(lambda: _once(s), max_attempts=retries)
 
     with cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(servers) or 1))) as pool:
         futs = {pool.submit(_run, s): s for s in servers}
@@ -78,7 +85,7 @@ def run(servers, timeout, use_json, sarif_path=None):
             "client": s.client, "name": s.name, "config": s.config,
             "command": " ".join(filter(None, [s.command, *s.args])) or s.url or "",
             "status": r.status, "detail": r.detail, "tools": r.tools,
-            "hint": hint, "ms": r.ms,
+            "hint": hint, "ms": r.ms, "attempts": r.attempts,
         })
 
     if sarif_path:
@@ -124,6 +131,8 @@ def main(argv=None):
                     help="Yalniz bu server'lari denetle: 'client/name', 'name' veya glob (örn. 'cursor/*'). Tekrarlanabilir, virgulle de ayrilabilir.")
     ap.add_argument("--skip", action="append", default=[],
                     help="Bu server'lari atla: 'client/name', 'name' veya glob. --only'den sonra uygulanir.")
+    ap.add_argument("--retries", type=int, default=3, metavar="N",
+                    help="Crash/timeout sonrasi deneme sayisi (varsayilan 3). Son denemede gecen server FLAKY. 1 = retry kapali.")
     ap.add_argument("--version", action="version", version=f"mcp-sanity {__version__}")
     args = ap.parse_args(argv)
 
@@ -155,7 +164,7 @@ def main(argv=None):
         else:
             print("Hiç MCP config/server bulunamadı. --config ile dosya göster.")
         return 0
-    return run(servers, args.timeout, args.json, args.sarif)
+    return run(servers, args.timeout, args.json, args.sarif, max(1, args.retries))
 
 
 if __name__ == "__main__":

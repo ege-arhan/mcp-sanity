@@ -78,6 +78,9 @@ SARIF report for code scanning: `mcp-sanity --config .mcp.json --sarif results.s
 | `HTTP_STATUS` | non-200 from remote `url` | 401/403 auth, 404 path (usually ends `/mcp`) |
 | `HTTP_TIMEOUT` | remote `url` too slow | check endpoint, `--timeout 30` |
 | `HTTP_BAD_JSONRPC` | HTTP 200 but no JSON-RPC | endpoint not MCP, check url |
+| `FLAKY` | crashed on first attempt, passed a later one | transient: hunt the crash source (stderr stack, race/OOM), don't just re-run |
+
+Servers that crash, exit or go unreachable are retried up to 3 times (`--retries N`, 1 disables). A retry that then passes is reported `FLAKY` (exit 4), not `OK` — an intermittently dying MCP server still bites in production.
 
 Config warnings: unresolved `$ENV` placeholders, empty/placeholder `env` values, known secret patterns (OpenAI/Anthropic/GitHub/AWS/Slack/Google, bearer) in `env`, `--token`-style secrets in `args`, credentials in `url` (userinfo or `?token=`), duplicate command+args across servers.
 
@@ -88,7 +91,7 @@ Config warnings: unresolved `$ENV` placeholders, empty/placeholder `env` values,
 ## Development
 
 ```bash
-python3 tests/selfcheck.py   # 8 assertion groups, no frameworks
+python3 tests/selfcheck.py   # 12 assertion groups, no frameworks
 ```
 
 MIT © Ege Arhan

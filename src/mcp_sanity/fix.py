@@ -93,6 +93,10 @@ def fix_hint(server, result):
     if st == "HTTP_BAD_JSONRPC":
         return ("HTTP 200 ama gövde JSON-RPC değil. Endpoint MCP konuşmuyor olabilir; "
                 f"url'yi kontrol et: {result.detail[:120]}")
+    if st == "FLAKY":
+        return ("Arada bir ölüyor: aynı komutu tekrar denemek yerine kaynağı bul — "
+                "stderr'deki crash stack'ine bak; race/OOM/eksik bağımlılık şüphelisi. "
+                "Detay: " + result.detail[:160])
     return None
 
 

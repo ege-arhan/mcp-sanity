@@ -237,7 +237,49 @@ def main():
     w = fix.config_warnings([mk("ok", env={"A": "$MY_TOKEN"})])
     assert len(w) == 1 and "TOKEN" not in w[0] or "A" in w[0], w
 
-    print("selfcheck: 11/11 groups passed")
+    # 12) G6: retry + FLAKY (transient crashes caught, deterministic failures not retried)
+    flaky_fx = FX / "flaky_server.py"
+    marker = FX / "flaky_marker"
+    marker.unlink(missing_ok=True)
+    r = probe.retry_flaky(lambda: probe.probe_server(PY, [str(flaky_fx), str(marker)], {}, timeout=5))
+    assert r.status == "FLAKY", r
+    assert r.attempts == 2 and r.tools == ["echo"], r
+    assert "attempt 1 failed with PROCESS_EXIT" in r.detail, r.detail
+    # deterministic MISSING_BIN: one attempt, unchanged status
+    calls = []
+    def _missing():
+        calls.append(1)
+        return probe.probe_server("definitely-not-installed-bin", [], {}, timeout=2)
+    r = probe.retry_flaky(_missing)
+    assert r.status == "MISSING_BIN" and len(calls) == 1, (r, calls)
+    assert fix.fix_hint(s_ok, probe.ProbeResult("FLAKY", "passed on attempt 2")).lower().startswith("arada")
+    # SARIF: FLAKY = warning-level rule
+    doc = to_sarif([{"client": "cursor", "name": "f", "config": "c.json", "command": "x",
+                     "status": "FLAKY", "detail": "d", "tools": [], "hint": None, "ms": 5}], [])
+    res = doc["runs"][0]["results"]
+    assert len(res) == 1 and res[0]["ruleId"] == "FLAKY" and res[0]["level"] == "warning", doc
+
+    flaky_cfg = _cfg("flaky.json", {"mcpServers": {
+        "f": {"command": PY, "args": [str(flaky_fx), str(FX / "flaky_marker2")]}}})
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(flaky_cfg), "--timeout", "5", "--json"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    data = json.loads(proc.stdout)
+    assert data["servers"][0]["status"] == "FLAKY", data
+    assert data["servers"][0]["attempts"] == 2, data
+    assert proc.returncode == 4 == data["exit_code"], (proc.returncode, data)
+    # --retries 1 disables: first crash stays PROCESS_EXIT (exit 2)
+    (FX / "flaky_marker3").unlink(missing_ok=True)
+    flaky_cfg3 = _cfg("flaky3.json", {"mcpServers": {
+        "f": {"command": PY, "args": [str(flaky_fx), str(FX / "flaky_marker3")]}}})
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(flaky_cfg3), "--timeout", "5",
+                           "--retries", "1", "--json"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    data = json.loads(proc.stdout)
+    assert data["servers"][0]["status"] == "PROCESS_EXIT" and proc.returncode == 2, data
+    for m in ("flaky_marker", "flaky_marker2", "flaky_marker3"):
+        (FX / m).unlink(missing_ok=True)
+
+    print("selfcheck: 12/12 groups passed")
 
 
 if __name__ == "__main__":

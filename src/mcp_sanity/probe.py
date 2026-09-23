@@ -30,6 +30,7 @@ class ProbeResult:
     detail: str = ""
     tools: list[str] = field(default_factory=list)
     ms: int = 0
+    attempts: int = 1
 
 
 def _send(proc, msg):
@@ -102,8 +103,9 @@ def probe_server(command, args, env, timeout=10.0):
         while time.monotonic() < deadline:
             if proc.poll() is not None and not buf.strip():
                 tail = "".join(err_sink)[-400:]
+                phase = "after initialize" if init_resp else "before handshake"
                 return finish(ProbeResult("PROCESS_EXIT",
-                                          f"server exited code {proc.returncode}" + (f"; stderr: {tail}" if tail else "")))
+                                          f"server exited code {proc.returncode} {phase}" + (f"; stderr: {tail}" if tail else "")))
             for key, _ in sel.select(max(0.05, min(0.5, deadline - time.monotonic()))):
                 try:
                     chunk = os.read(fd, 4096)
@@ -114,7 +116,7 @@ def probe_server(command, args, env, timeout=10.0):
                         code = proc.poll()
                         tail = "".join(err_sink)[-400:]
                         if code is not None:
-                            det = f"server exited code {code}" + (f"; stderr: {tail}" if tail else "")
+                            det = f"server exited code {code} before handshake" + (f"; stderr: {tail}" if tail else "")
                             return finish(ProbeResult("PROCESS_EXIT", det))
                         kind = "BAD_JSON" if noise else "EMPTY_RESPONSE"
                         det = f"stdout had non-JSON lines: {noise[0][:120]!r}" if noise else "server closed stdout without responding"
@@ -154,7 +156,16 @@ def probe_server(command, args, env, timeout=10.0):
     if "error" in init_resp:
         return finish(ProbeResult("BAD_JSON", f"initialize error: {init_resp['error']}"))
     if tools_resp is None:
-        return finish(ProbeResult("HANDSHAKE_TIMEOUT", f"no tools/list response within {timeout:.0f}s"))
+        try:
+            code = proc.wait(timeout=1)
+        except Exception:
+            code = None
+        if code is not None:
+            tail = "".join(err_sink)[-400:]
+            return finish(ProbeResult("PROCESS_EXIT",
+                                      f"server exited code {code} after initialize"
+                                      + (f"; stderr: {tail}" if tail else "")))
+        return finish(ProbeResult("HANDSHAKE_TIMEOUT", f"no tools/list response within {timeout:.0f}s (process alive)"))
     if "error" in tools_resp:
         return finish(ProbeResult("TOOL_ERROR", f"tools/list error: {tools_resp['error'].get('message', tools_resp['error'])}"))
     tools = [t.get("name", "?") for t in (tools_resp.get("result") or {}).get("tools", [])]
@@ -162,3 +173,26 @@ def probe_server(command, args, env, timeout=10.0):
     if noise:
         detail += f"; warning: {len(noise)} non-JSON stdout line(s) (spec violation)"
     return finish(ProbeResult("OK", detail, tools, 0))
+
+# Crash-y statuses worth a retry: transient (race/OOM/network), unlike MISSING_BIN.
+RETRY_STATUSES = frozenset({"PROCESS_EXIT", "EMPTY_RESPONSE", "HTTP_UNREACHABLE"})
+
+def retry_flaky(run_once, statuses=RETRY_STATUSES, max_attempts=3):
+    """Re-run a crashed probe. A server that passes on a later attempt is FLAKY,
+    not healthy: the crash still bites in the wild. Deterministic failures
+    (statuses outside `statuses`) are never retried."""
+    result = run_once()
+    if result.status not in statuses:
+        return result
+    first_status, first_detail = result.status, result.detail
+    for i in range(2, max_attempts + 1):
+        result = run_once()
+        result.attempts = i
+        if result.status == "OK":
+            return ProbeResult(
+                "FLAKY",
+                f"passed on attempt {i}; attempt 1 failed with {first_status}: {first_detail[:140]}",
+                result.tools, result.ms, i)
+        if result.status not in statuses:
+            return result
+    return result
