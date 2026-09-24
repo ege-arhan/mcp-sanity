@@ -279,7 +279,16 @@ def main():
     for m in ("flaky_marker", "flaky_marker2", "flaky_marker3"):
         (FX / m).unlink(missing_ok=True)
 
-    print("selfcheck: 12/12 groups passed")
+    # 13) G7: demo senaryosu calisir durumda (OK + MISSING_BIN + BAD_JSON)
+    demo = subprocess.run(["bash", str(ROOT / "demo" / "run.sh")],
+                          capture_output=True, text=True, cwd=ROOT)
+    assert demo.returncode == 0, (demo.returncode, demo.stdout, demo.stderr)
+    assert "good-notes" in demo.stdout and "ghost-bin" in demo.stdout, demo.stdout
+    assert "MISSING_BIN" in demo.stdout and "BAD_JSON" in demo.stdout, demo.stdout
+    assert (ROOT / "demo" / "mcp.json.tpl").is_file()
+    assert (ROOT / "demo" / "run.sh").is_file()
+
+    print("selfcheck: 13/13 groups passed")
 
 
 if __name__ == "__main__":

@@ -88,10 +88,19 @@ Config warnings: unresolved `$ENV` placeholders, empty/placeholder `env` values,
 
 `~/.cursor/mcp.json` · Claude Desktop `claude_desktop_config.json` (macOS + Linux paths) · `~/.codex/config.toml` `[mcp_servers]` · opencode `mcp` (string commands) · project `.mcp.json`. Anything with the `mcpServers` object shape works via `--config`. Entries with a remote `url` (Streamable HTTP, plain JSON or SSE) are probed over HTTP; stdio `command` entries are spawned locally.
 
+## Demo
+
+```bash
+bash demo/run.sh                        # 60 sn'lik canli senaryo: 1 OK, 1 MISSING_BIN, 1 BAD_JSON
+bash demo/run.sh --record demo/demo.cast # typescript kaydi (asciinema upload'a hazir)
+```
+
+`demo/mcp.json.tpl`, fixture server'larla 3'lu kirik-config sahnesi kurar: `run.sh` once tam tabloyu, sonra `--only` + `--json` ile CI gorunumunu gosterir.
+
 ## Development
 
 ```bash
-python3 tests/selfcheck.py   # 12 assertion groups, no frameworks
+python3 tests/selfcheck.py   # 13 assertion groups, no frameworks
 ```
 
 MIT © Ege Arhan
