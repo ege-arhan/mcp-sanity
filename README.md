@@ -49,6 +49,8 @@ mcp-sanity --only cursor/* --skip "*notes*"  # glob + atlama
 
 Exit codes: `0` all healthy · `2` server can't start (missing binary / crashes) · `3` starts but speaks no MCP (timeout, non-JSON stdout) · `4` usage error. CI gate: `mcp-sanity --json && echo all good`.
 
+`--json` output carries `schema_version` (currently `"1"`) and the fixed columns `client/name/config/command/status/detail/tools/hint/ms/attempts`. `--json-schema` prints the JSON Schema. Breaking field changes bump `schema_version`; additive fields don't.
+
 ### GitHub Action
 
 ```yaml

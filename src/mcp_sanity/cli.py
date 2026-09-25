@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, discover, fix, http_probe, probe
+from . import __schema_version__, __version__, discover, fix, http_probe, probe
 from .sarif import to_sarif
 
 ICON = {
@@ -31,6 +31,41 @@ EXIT_FOR = {
     "HANDSHAKE_TIMEOUT": 3, "BAD_JSON": 3, "EMPTY_RESPONSE": 3, "TOOL_ERROR": 3,
     "HTTP_UNREACHABLE": 2, "HTTP_STATUS": 3, "HTTP_TIMEOUT": 3, "HTTP_BAD_JSONRPC": 3,
     "FLAKY": 4,
+}
+
+# --json ciktisinin kararli semasi. Breaking alan degisikligi => schema_version artar.
+# Ek alan (hint/ms/attempts gibi) minor'dir, schema_version artirmaz.
+JSON_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "mcp-sanity --json output",
+    "type": "object",
+    "required": ["schema_version", "version", "servers", "warnings", "exit_code"],
+    "properties": {
+        "schema_version": {"const": __schema_version__},
+        "version": {"type": "string"},
+        "exit_code": {"type": "integer"},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "servers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["client", "name", "config", "command",
+                               "status", "detail", "tools", "hint", "ms", "attempts"],
+                "properties": {
+                    "client": {"type": "string"},
+                    "name": {"type": "string"},
+                    "config": {"type": "string"},
+                    "command": {"type": "string"},
+                    "status": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "tools": {"type": "array", "items": {"type": "string"}},
+                    "hint": {"type": ["string", "null"]},
+                    "ms": {"type": "integer"},
+                    "attempts": {"type": "integer"},
+                },
+            },
+        },
+    },
 }
 
 
@@ -93,8 +128,8 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3):
                                                 ensure_ascii=False, indent=2) + "\n")
 
     if use_json:
-        print(json.dumps({"version": __version__, "servers": rows,
-                          "warnings": warnings, "exit_code": exit_code},
+        print(json.dumps({"schema_version": __schema_version__, "version": __version__,
+                          "servers": rows, "warnings": warnings, "exit_code": exit_code},
                          ensure_ascii=False, indent=2))
         return exit_code
 
@@ -133,8 +168,13 @@ def main(argv=None):
                     help="Bu server'lari atla: 'client/name', 'name' veya glob. --only'den sonra uygulanir.")
     ap.add_argument("--retries", type=int, default=3, metavar="N",
                     help="Crash/timeout sonrasi deneme sayisi (varsayilan 3). Son denemede gecen server FLAKY. 1 = retry kapali.")
+    ap.add_argument("--json-schema", action="store_true",
+                    help="JSON cikti semasini yazdir (semver: sema degisince schema_version artar).")
     ap.add_argument("--version", action="version", version=f"mcp-sanity {__version__}")
     args = ap.parse_args(argv)
+    if args.json_schema:
+        print(json.dumps(JSON_SCHEMA, ensure_ascii=False, indent=2))
+        return 0
 
     servers: list[discover.Server] = []
     if args.config:
@@ -159,8 +199,8 @@ def main(argv=None):
             Path(args.sarif).write_text(json.dumps(to_sarif([], []),
                                                     ensure_ascii=False, indent=2) + "\n")
         if args.json:
-            print(json.dumps({"version": __version__, "servers": [],
-                              "warnings": [], "exit_code": 0}))
+            print(json.dumps({"schema_version": __schema_version__, "version": __version__,
+                              "servers": [], "warnings": [], "exit_code": 0}))
         else:
             print("Hiç MCP config/server bulunamadı. --config ile dosya göster.")
         return 0

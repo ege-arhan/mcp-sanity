@@ -279,6 +279,26 @@ def main():
     for m in ("flaky_marker", "flaky_marker2", "flaky_marker3"):
         (FX / m).unlink(missing_ok=True)
 
+    # 14) G8: JSON cikista semver + sema stabil
+    from mcp_sanity import __schema_version__  # noqa: E402
+    from mcp_sanity.cli import JSON_SCHEMA  # noqa: E402
+    assert __schema_version__ == "1", __schema_version__
+    assert JSON_SCHEMA["properties"]["schema_version"] == {"const": "1"}
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--json-schema"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    schema = json.loads(proc.stdout)
+    assert schema["required"] == ["schema_version", "version", "servers", "warnings", "exit_code"], schema
+    want_cols = {"client", "name", "config", "command", "status", "detail",
+                 "tools", "hint", "ms", "attempts"}
+    assert set(schema["properties"]["servers"]["items"]["required"]) == want_cols, schema
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(only_good),
+                           "--timeout", "5", "--json"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    data = json.loads(proc.stdout)
+    assert data["schema_version"] == "1", data
+    assert set(data["servers"][0]) == want_cols, data["servers"][0]
+
     # 13) G7: demo senaryosu calisir durumda (OK + MISSING_BIN + BAD_JSON)
     demo = subprocess.run(["bash", str(ROOT / "demo" / "run.sh")],
                           capture_output=True, text=True, cwd=ROOT)
@@ -288,7 +308,7 @@ def main():
     assert (ROOT / "demo" / "mcp.json.tpl").is_file()
     assert (ROOT / "demo" / "run.sh").is_file()
 
-    print("selfcheck: 13/13 groups passed")
+    print("selfcheck: 14/14 groups passed")
 
 
 if __name__ == "__main__":
