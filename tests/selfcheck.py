@@ -299,6 +299,47 @@ def main():
     assert data["schema_version"] == "1", data
     assert set(data["servers"][0]) == want_cols, data["servers"][0]
 
+    # 15) G9: --compare coklu-client karsilastirma (ortak + DIVERGENT)
+    from mcp_sanity.cli import compare_groups, render_compare  # noqa: E402
+    rows = [
+        {"client": "cursor", "name": "notes", "config": "a", "command": "python3 x.py",
+         "status": "OK", "detail": "2 tool(s)", "tools": [], "hint": None, "ms": 5, "attempts": 1},
+        {"client": "codex", "name": "notes", "config": "b", "command": "python3 x.py",
+         "status": "PROCESS_EXIT", "detail": "died", "tools": [], "hint": "h", "ms": 6, "attempts": 1},
+        {"client": "cursor", "name": "solo", "config": "a", "command": "other-bin",
+         "status": "OK", "detail": "1 tool(s)", "tools": [], "hint": None, "ms": 3, "attempts": 1},
+    ]
+    groups = compare_groups(rows)
+    assert len(groups) == 2, groups
+    shared_g = next(g for g in groups if g["key"] == "python3 x.py")
+    assert shared_g["shared"] and shared_g["divergent"], shared_g
+    solo_g = next(g for g in groups if g["key"] == "other-bin")
+    assert not solo_g["shared"] and not solo_g["divergent"], solo_g
+    text = render_compare(groups)
+    assert "DIVERGENT" in text and "shared across clients" in text, text
+    # CLI: iki config dosyasindan ayni komut, farkli client etiketiyle karsilastir
+    cmp_a = _cfg("cmp_a.json", {"mcpServers": {
+        "ok": {"command": PY, "args": [str(FX / "good_server.py")]}}})
+    cmp_b = _cfg("cmp_b.json", {"mcpServers": {
+        "ghost": {"command": "definitely-not-installed-bin", "args": []}}})
+    # ayni komut iki ayri --config'ten gelince client etiketi ayni olur; unit duzeyde
+    # divergent path'i dogrulamak icin farkli status'lu iki config'i birlestir
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(cmp_a),
+                           "--config", str(cmp_b), "--timeout", "3", "--compare"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    assert "compare" in proc.stdout, (proc.returncode, proc.stdout)
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(cmp_a),
+                           "--config", str(cmp_b), "--timeout", "3",
+                           "--json", "--compare"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    data = json.loads(proc.stdout)
+    assert "compare" in data and len(data["compare"]) == 2, data
+    # bayraksiz --json semasi degismez (compare anahtari yok)
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(only_good),
+                           "--timeout", "5", "--json"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    assert "compare" not in json.loads(proc.stdout)
+
     # 13) G7: demo senaryosu calisir durumda (OK + MISSING_BIN + BAD_JSON)
     demo = subprocess.run(["bash", str(ROOT / "demo" / "run.sh")],
                           capture_output=True, text=True, cwd=ROOT)
@@ -308,7 +349,7 @@ def main():
     assert (ROOT / "demo" / "mcp.json.tpl").is_file()
     assert (ROOT / "demo" / "run.sh").is_file()
 
-    print("selfcheck: 14/14 groups passed")
+    print("selfcheck: 15/15 groups passed")
 
 
 if __name__ == "__main__":

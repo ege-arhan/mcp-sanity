@@ -45,11 +45,14 @@ mcp-sanity --timeout 30        # slow startup (npx cold install)
 mcp-sanity --json              # machine-readable, for CI
 mcp-sanity --only brave-search # tek server (isim, client/name veya glob)
 mcp-sanity --only cursor/* --skip "*notes*"  # glob + atlama
+mcp-sanity --compare           # ayni komut/url'yi paylasan server'lari karsilastir
 ```
 
 Exit codes: `0` all healthy · `2` server can't start (missing binary / crashes) · `3` starts but speaks no MCP (timeout, non-JSON stdout) · `4` usage error. CI gate: `mcp-sanity --json && echo all good`.
 
 `--json` output carries `schema_version` (currently `"1"`) and the fixed columns `client/name/config/command/status/detail/tools/hint/ms/attempts`. `--json-schema` prints the JSON Schema. Breaking field changes bump `schema_version`; additive fields don't.
+
+`--compare` groups results by identical `command + args` (or `url`): shared entries across clients get `[same]` or `[DIVERGENT]` (same command, different status — usually env/PATH or per-client config drift). `--json --compare` adds an optional `compare` array; without the flag the schema is unchanged.
 
 ### GitHub Action
 

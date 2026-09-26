@@ -92,7 +92,44 @@ def select_servers(servers, only=(), skip=()):
     return sel
 
 
-def run(servers, timeout, use_json, sarif_path=None, retries=3):
+def compare_groups(rows):
+    """Group result rows by normalized server identity (command+args or url).
+    Returns [{key, cells:[row...], divergent:bool}] sorted by key."""
+    groups: dict[str, list] = {}
+    for r in rows:
+        key = (r.get("command") or "").strip() or "(no command/url)"
+        groups.setdefault(key, []).append(r)
+    out = []
+    for key in sorted(groups):
+        cells = sorted(groups[key], key=lambda c: (c["client"], c["name"]))
+        statuses = {c["status"] for c in cells}
+        origins = {(c["client"], c["config"]) for c in cells}
+        out.append({"key": key, "cells": cells,
+                    "shared": len(origins) > 1, "divergent": len(statuses) > 1})
+    return out
+
+
+def render_compare(groups):
+    lines = ["\ncompare"]
+    if not groups:
+        lines.append("  (no servers)")
+        return "\n".join(lines)
+    shared = sum(1 for g in groups if g["shared"])
+    div = sum(1 for g in groups if g["divergent"])
+    for g in groups:
+        tag = ""
+        if g["shared"]:
+            tag = "  [DIVERGENT]" if g["divergent"] else "  [same]"
+        lines.append(f"  = {g['key'][:100]}{tag}")
+        for c in g["cells"]:
+            icon = ICON.get(c["status"], "?")
+            lines.append(f"    {icon} {c['client']}/{c['name']:<22} {c['status']}")
+    lines.append(f"{len(groups)} unique server(s), {shared} shared across clients"
+                 + (f", {div} divergent" if shared else ""))
+    return "\n".join(lines)
+
+
+def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False):
     results: list[tuple] = []
     def _once(s):
         if not s.command and s.url and s.url.startswith(("http://", "https://")):
@@ -127,10 +164,17 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3):
         Path(sarif_path).write_text(json.dumps(to_sarif(rows, warnings),
                                                 ensure_ascii=False, indent=2) + "\n")
 
+    groups = compare_groups(rows) if compare else []
     if use_json:
-        print(json.dumps({"schema_version": __schema_version__, "version": __version__,
-                          "servers": rows, "warnings": warnings, "exit_code": exit_code},
-                         ensure_ascii=False, indent=2))
+        payload = {"schema_version": __schema_version__, "version": __version__,
+                   "servers": rows, "warnings": warnings, "exit_code": exit_code}
+        if compare:
+            payload["compare"] = [{"key": g["key"], "shared": g["shared"],
+                                     "divergent": g["divergent"],
+                                     "cells": [{"client": c["client"], "name": c["name"],
+                                                  "status": c["status"]} for c in g["cells"]]}
+                                    for g in groups]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return exit_code
 
     cur = None
@@ -147,6 +191,8 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3):
         print("\nwarnings")
         for w in warnings:
             print(f"  ⚠ {w}")
+    if compare:
+        print(render_compare(groups))
     bad = sum(1 for r in rows if r["status"] != "OK")
     print(f"\n{len(rows)} server, {len(rows) - bad} OK, {bad} sorunlu"
           + (f", {len(warnings)} uyarı" if warnings else ""))
@@ -168,6 +214,8 @@ def main(argv=None):
                     help="Bu server'lari atla: 'client/name', 'name' veya glob. --only'den sonra uygulanir.")
     ap.add_argument("--retries", type=int, default=3, metavar="N",
                     help="Crash/timeout sonrasi deneme sayisi (varsayilan 3). Son denemede gecen server FLAKY. 1 = retry kapali.")
+    ap.add_argument("--compare", action="store_true",
+                    help="Ayni komut/url'yi paylasan server'lari client'lar arasi karsilastir (ortak + DIVERGENT isaretle).")
     ap.add_argument("--json-schema", action="store_true",
                     help="JSON cikti semasini yazdir (semver: sema degisince schema_version artar).")
     ap.add_argument("--version", action="version", version=f"mcp-sanity {__version__}")
@@ -204,7 +252,7 @@ def main(argv=None):
         else:
             print("Hiç MCP config/server bulunamadı. --config ile dosya göster.")
         return 0
-    return run(servers, args.timeout, args.json, args.sarif, max(1, args.retries))
+    return run(servers, args.timeout, args.json, args.sarif, max(1, args.retries), args.compare)
 
 
 if __name__ == "__main__":
