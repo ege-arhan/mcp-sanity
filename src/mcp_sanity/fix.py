@@ -1,8 +1,10 @@
 """Fix suggestions: map probe status to a concrete next action."""
 from __future__ import annotations
 
+import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 _SECRET_KEY_RE = re.compile(
@@ -98,6 +100,118 @@ def fix_hint(server, result):
                 "stderr'deki crash stack'ine bak; race/OOM/eksik bağımlılık şüphelisi. "
                 "Detay: " + result.detail[:160])
     return None
+
+
+@dataclass
+class FixCandidate:
+    """Safe fix candidate that can be previewed or applied."""
+    kind: str  # "chmod_x", "clean_empty_env", "clean_dup_server"
+    target: str  # file path or description
+    desc: str  # human summary
+    diff: str  # unified diff or action preview
+    apply_fn: object  # callable() -> None
+
+
+def get_safe_fixes(servers, probe_results) -> list[FixCandidate]:
+    """Find safe, deterministic fixes:
+    1) chmod +x for NOT_EXECUTABLE files
+    2) remove empty env vars from JSON configs
+    3) remove exact duplicate servers from JSON configs
+    """
+    import difflib
+    import stat
+    fixes = []
+    status_map = {f"{s.client}/{s.name}": r for s, r in probe_results}
+
+    # 1) NOT_EXECUTABLE -> chmod +x
+    for s, r in probe_results:
+        if r.status == "NOT_EXECUTABLE" and s.command:
+            p = Path(os.path.expanduser(s.command))
+            if p.is_file() and not os.access(p, os.X_OK):
+                cur_mode = oct(p.stat().st_mode & 0o777)
+                new_mode = oct((p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH) & 0o777)
+                diff = f"--- {p} (mode {cur_mode})\n+++ {p} (mode {new_mode})\n@@ chmod +x @@"
+                def _do_chmod(path=p):
+                    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                fixes.append(FixCandidate(
+                    kind="chmod_x",
+                    target=str(p),
+                    desc=f"chmod +x on '{p.name}'",
+                    diff=diff,
+                    apply_fn=_do_chmod,
+                ))
+
+    # 2 & 3) Config fixes for JSON files (safe, deterministic edits)
+    by_config: dict[str, list] = {}
+    for s in servers:
+        by_config.setdefault(s.config, []).append(s)
+
+    for cfg_str, s_list in by_config.items():
+        cfg_path = Path(cfg_str)
+        if not cfg_path.is_file() or cfg_path.suffix != ".json":
+            continue
+        try:
+            raw_text = cfg_path.read_text(encoding="utf-8")
+            data = json.loads(raw_text)
+        except Exception:
+            continue
+        mcp_servers = data.get("mcpServers")
+        if not isinstance(mcp_servers, dict):
+            continue
+
+        changed = False
+        new_data = json.loads(raw_text)
+        new_mcp = new_data["mcpServers"]
+
+        # Clean empty env entries
+        for s in s_list:
+            if s.name in new_mcp and isinstance(new_mcp[s.name], dict):
+                env = new_mcp[s.name].get("env")
+                if isinstance(env, dict):
+                    empty_keys = [k for k, v in env.items() if v == ""]
+                    if empty_keys:
+                        for k in empty_keys:
+                            del env[k]
+                        if not env:
+                            del new_mcp[s.name]["env"]
+                        changed = True
+
+        # Clean exact duplicate servers (same command + args + env)
+        seen_cmds: dict[tuple, str] = {}
+        dup_names = []
+        for s in s_list:
+            if not s.command:
+                continue
+            key = (s.command, tuple(s.args), tuple(sorted((s.env or {}).items())))
+            if key in seen_cmds:
+                dup_names.append(s.name)
+            else:
+                seen_cmds[key] = s.name
+
+        for d_name in dup_names:
+            if d_name in new_mcp:
+                del new_mcp[d_name]
+                changed = True
+
+        if changed:
+            new_text = json.dumps(new_data, indent=2, ensure_ascii=False) + "\n"
+            diff = "".join(difflib.unified_diff(
+                raw_text.splitlines(keepends=True),
+                new_text.splitlines(keepends=True),
+                fromfile=f"a/{cfg_path.name}",
+                tofile=f"b/{cfg_path.name}",
+            ))
+            def _write_cfg(path=cfg_path, text=new_text):
+                path.write_text(text, encoding="utf-8")
+            fixes.append(FixCandidate(
+                kind="clean_config",
+                target=str(cfg_path),
+                desc=f"clean empty env / duplicate servers in {cfg_path.name}",
+                diff=diff,
+                apply_fn=_write_cfg,
+            ))
+
+    return fixes
 
 
 def config_warnings(servers) -> list[str]:

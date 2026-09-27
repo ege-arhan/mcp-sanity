@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 INITIALIZE = {
     "jsonrpc": "2.0",
@@ -53,12 +54,18 @@ def probe_server(command, args, env, timeout=10.0):
     OK MISSING_BIN NOT_EXECUTABLE PROCESS_EXIT HANDSHAKE_TIMEOUT BAD_JSON TOOL_ERROR EMPTY_RESPONSE
     """
     t0 = time.monotonic()
+    if not command:
+        return ProbeResult("MISSING_BIN", "no command configured", ms=int((time.monotonic() - t0) * 1000))
+    # If path explicitly points to an existing file without execute bits, classify NOT_EXECUTABLE
+    cmd_path = Path(os.path.expanduser(command))
+    if cmd_path.is_file() and not os.access(cmd_path, os.X_OK):
+        return ProbeResult("NOT_EXECUTABLE", f"'{command}' is not executable",
+                           ms=int((time.monotonic() - t0) * 1000))
+
     exe = shutil.which(command, path=env and os.pathsep.join(
         [env.get("PATH", "")]) or None) if command else None
     if command and not exe:
         exe = shutil.which(command)
-    if not command:
-        return ProbeResult("MISSING_BIN", "no command configured", ms=int((time.monotonic() - t0) * 1000))
     if not exe:
         return ProbeResult("MISSING_BIN", f"'{command}' not found on PATH",
                            ms=int((time.monotonic() - t0) * 1000))

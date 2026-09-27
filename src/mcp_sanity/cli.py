@@ -129,7 +129,7 @@ def render_compare(groups):
     return "\n".join(lines)
 
 
-def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False):
+def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False, fix_apply=False, fix_dry_run=False):
     results: list[tuple] = []
     def _once(s):
         if not s.command and s.url and s.url.startswith(("http://", "https://")):
@@ -160,6 +160,15 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False):
             "hint": hint, "ms": r.ms, "attempts": r.attempts,
         })
 
+    # Safe fix candidates
+    fix_candidates = fix.get_safe_fixes(servers, results)
+    fixes_applied = 0
+    if fix_apply or fix_dry_run:
+        for fc in fix_candidates:
+            if fix_apply:
+                fc.apply_fn()
+                fixes_applied += 1
+
     if sarif_path:
         Path(sarif_path).write_text(json.dumps(to_sarif(rows, warnings),
                                                 ensure_ascii=False, indent=2) + "\n")
@@ -174,6 +183,12 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False):
                                      "cells": [{"client": c["client"], "name": c["name"],
                                                   "status": c["status"]} for c in g["cells"]]}
                                     for g in groups]
+        if fix_apply or fix_dry_run:
+            payload["fixes"] = [
+                {"kind": fc.kind, "target": fc.target, "desc": fc.desc,
+                 "applied": fix_apply}
+                for fc in fix_candidates
+            ]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return exit_code
 
@@ -193,6 +208,15 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False):
             print(f"  ⚠ {w}")
     if compare:
         print(render_compare(groups))
+    if fix_candidates:
+        header = "fixes (applied)" if fix_apply else "fixes (dry-run)"
+        print(f"\n{header}")
+        for fc in fix_candidates:
+            act = "applied" if fix_apply else "candidate"
+            print(f"  ✔ [{act}] {fc.desc} ({fc.target})")
+            if fc.diff:
+                for dline in fc.diff.splitlines():
+                    print(f"      {dline}")
     bad = sum(1 for r in rows if r["status"] != "OK")
     print(f"\n{len(rows)} server, {len(rows) - bad} OK, {bad} sorunlu"
           + (f", {len(warnings)} uyarı" if warnings else ""))
@@ -216,6 +240,10 @@ def main(argv=None):
                     help="Crash/timeout sonrasi deneme sayisi (varsayilan 3). Son denemede gecen server FLAKY. 1 = retry kapali.")
     ap.add_argument("--compare", action="store_true",
                     help="Ayni komut/url'yi paylasan server'lari client'lar arasi karsilastir (ortak + DIVERGENT isaretle).")
+    ap.add_argument("--fix", action="store_true",
+                    help="Guvenli fix adaylarini dogrudan uygula (chmod +x, bos env ve duplicate server temizligi).")
+    ap.add_argument("--fix-dry-run", action="store_true",
+                    help="Guvenli fix adaylarini ve diff onizlemesini yazdir ama dosyalara dokunma.")
     ap.add_argument("--json-schema", action="store_true",
                     help="JSON cikti semasini yazdir (semver: sema degisince schema_version artar).")
     ap.add_argument("--version", action="version", version=f"mcp-sanity {__version__}")
@@ -252,7 +280,8 @@ def main(argv=None):
         else:
             print("Hiç MCP config/server bulunamadı. --config ile dosya göster.")
         return 0
-    return run(servers, args.timeout, args.json, args.sarif, max(1, args.retries), args.compare)
+    return run(servers, args.timeout, args.json, args.sarif, max(1, args.retries),
+               args.compare, fix_apply=args.fix, fix_dry_run=args.fix_dry_run)
 
 
 if __name__ == "__main__":

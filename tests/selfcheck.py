@@ -340,6 +340,62 @@ def main():
                           capture_output=True, text=True, cwd=ROOT / "src")
     assert "compare" not in json.loads(proc.stdout)
 
+    # 16) G10: --fix / --fix-dry-run guvenli fix adaylari (chmod +x, bos env, duplicate)
+    import os, stat
+    # a) chmod +x
+    noexec_sh = FX / "noexec.sh"
+    noexec_sh.write_text("#!/bin/sh\nexit 0\n")
+    noexec_sh.chmod(0o644)
+    assert not os.access(noexec_sh, os.X_OK)
+
+    # b) bos env ve duplicate iceren config
+    fix_cfg = _cfg("fixable.json", {
+        "mcpServers": {
+            "noexec": {"command": str(noexec_sh), "args": []},
+            "srv1": {"command": PY, "args": [str(FX / "good_server.py")], "env": {"EMPTY": "", "KEEP": "1"}},
+            "srv1_dup": {"command": PY, "args": [str(FX / "good_server.py")], "env": {"EMPTY": "", "KEEP": "1"}},
+        }
+    })
+
+    # Dry-run: dosyalara dokunmaz, diff ve candidate dondurur
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(fix_cfg),
+                           "--timeout", "3", "--fix-dry-run"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    assert "fixes (dry-run)" in proc.stdout, (proc.returncode, proc.stdout)
+    assert "candidate" in proc.stdout, proc.stdout
+    assert not os.access(noexec_sh, os.X_OK)  # dry run dokunmadi
+    cfg_data_dry = json.loads(fix_cfg.read_text())
+    assert "srv1_dup" in cfg_data_dry["mcpServers"]
+    assert cfg_data_dry["mcpServers"]["srv1"]["env"]["EMPTY"] == ""
+
+    # JSON dry-run: fixes alani var
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(fix_cfg),
+                           "--timeout", "3", "--json", "--fix-dry-run"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    data = json.loads(proc.stdout)
+    assert "fixes" in data and len(data["fixes"]) >= 2, data
+    assert any(f["kind"] == "chmod_x" and not f["applied"] for f in data["fixes"])
+    assert any(f["kind"] == "clean_config" and not f["applied"] for f in data["fixes"])
+
+    # Apply: degisiklikleri uygular
+    proc = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(fix_cfg),
+                           "--timeout", "3", "--fix"],
+                          capture_output=True, text=True, cwd=ROOT / "src")
+    assert "fixes (applied)" in proc.stdout, (proc.returncode, proc.stdout)
+    assert "applied" in proc.stdout, proc.stdout
+    assert os.access(noexec_sh, os.X_OK)  # chmod uygulandi
+
+    cfg_data_fixed = json.loads(fix_cfg.read_text())
+    # srv1_dup silindi
+    assert "srv1_dup" not in cfg_data_fixed["mcpServers"]
+    # EMPTY silindi, KEEP korundu
+    assert "EMPTY" not in cfg_data_fixed["mcpServers"]["srv1"]["env"]
+    assert cfg_data_fixed["mcpServers"]["srv1"]["env"]["KEEP"] == "1"
+
+    # Temizlik
+    noexec_sh.unlink(missing_ok=True)
+    fix_cfg.unlink(missing_ok=True)
+
     # 13) G7: demo senaryosu calisir durumda (OK + MISSING_BIN + BAD_JSON)
     demo = subprocess.run(["bash", str(ROOT / "demo" / "run.sh")],
                           capture_output=True, text=True, cwd=ROOT)
@@ -349,7 +405,7 @@ def main():
     assert (ROOT / "demo" / "mcp.json.tpl").is_file()
     assert (ROOT / "demo" / "run.sh").is_file()
 
-    print("selfcheck: 15/15 groups passed")
+    print("selfcheck: 16/16 groups passed")
 
 
 if __name__ == "__main__":
