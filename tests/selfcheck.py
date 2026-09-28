@@ -396,6 +396,23 @@ def main():
     noexec_sh.unlink(missing_ok=True)
     fix_cfg.unlink(missing_ok=True)
 
+    # 17) G11: --concurrency / -j paralel probe worker limiti
+    # -j 1 sirali calisir, -j 4 paralel calisir; her ikisi de ayni sonucu uretir
+    proc_seq = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(good),
+                              "--timeout", "5", "-j", "1", "--json"],
+                             capture_output=True, text=True, cwd=ROOT / "src")
+    assert proc_seq.returncode in (2, 3), proc_seq.returncode
+    data_seq = json.loads(proc_seq.stdout)
+
+    proc_par = subprocess.run([PY, "-m", "mcp_sanity", "--config", str(good),
+                              "--timeout", "5", "--concurrency", "4", "--json"],
+                             capture_output=True, text=True, cwd=ROOT / "src")
+    assert proc_par.returncode in (2, 3), proc_par.returncode
+    data_par = json.loads(proc_par.stdout)
+
+    assert [s["name"] for s in data_seq["servers"]] == [s["name"] for s in data_par["servers"]]
+    assert [s["status"] for s in data_seq["servers"]] == [s["status"] for s in data_par["servers"]]
+
     # 13) G7: demo senaryosu calisir durumda (OK + MISSING_BIN + BAD_JSON)
     demo = subprocess.run(["bash", str(ROOT / "demo" / "run.sh")],
                           capture_output=True, text=True, cwd=ROOT)
@@ -405,7 +422,7 @@ def main():
     assert (ROOT / "demo" / "mcp.json.tpl").is_file()
     assert (ROOT / "demo" / "run.sh").is_file()
 
-    print("selfcheck: 16/16 groups passed")
+    print("selfcheck: 17/17 groups passed")
 
 
 if __name__ == "__main__":

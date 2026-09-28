@@ -129,7 +129,7 @@ def render_compare(groups):
     return "\n".join(lines)
 
 
-def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False, fix_apply=False, fix_dry_run=False):
+def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False, fix_apply=False, fix_dry_run=False, concurrency=8):
     results: list[tuple] = []
     def _once(s):
         if not s.command and s.url and s.url.startswith(("http://", "https://")):
@@ -141,7 +141,8 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False, f
             return _once(s)
         return probe.retry_flaky(lambda: _once(s), max_attempts=retries)
 
-    with cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(servers) or 1))) as pool:
+    workers = max(1, min(concurrency, len(servers) or 1))
+    with cf.ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {pool.submit(_run, s): s for s in servers}
         for fut in cf.as_completed(futs):
             results.append((futs[fut], fut.result()))
@@ -238,6 +239,8 @@ def main(argv=None):
                     help="Bu server'lari atla: 'client/name', 'name' veya glob. --only'den sonra uygulanir.")
     ap.add_argument("--retries", type=int, default=3, metavar="N",
                     help="Crash/timeout sonrasi deneme sayisi (varsayilan 3). Son denemede gecen server FLAKY. 1 = retry kapali.")
+    ap.add_argument("--concurrency", "-j", type=int, default=8, metavar="N",
+                    help="Ayni anda probe edilecek paralel worker sayisi (varsayilan 8; 1 = sirali).")
     ap.add_argument("--compare", action="store_true",
                     help="Ayni komut/url'yi paylasan server'lari client'lar arasi karsilastir (ortak + DIVERGENT isaretle).")
     ap.add_argument("--fix", action="store_true",
@@ -281,7 +284,8 @@ def main(argv=None):
             print("Hiç MCP config/server bulunamadı. --config ile dosya göster.")
         return 0
     return run(servers, args.timeout, args.json, args.sarif, max(1, args.retries),
-               args.compare, fix_apply=args.fix, fix_dry_run=args.fix_dry_run)
+               args.compare, fix_apply=args.fix, fix_dry_run=args.fix_dry_run,
+               concurrency=max(1, args.concurrency))
 
 
 if __name__ == "__main__":
