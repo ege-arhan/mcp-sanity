@@ -3,14 +3,11 @@ All test cases ported from selfcheck.py into idiomatic standalone pytest functio
 """
 import json
 import os
-import stat
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -129,14 +126,17 @@ def test_http_probe():
 
         def do_POST(self):
             if self.path not in ("/mcp-json", "/mcp-sse", "/slow"):
-                self.send_response(404); self.end_headers(); return
+                self.send_response(404)
+                self.end_headers()
+                return
             msg = self._body()
             if self.path == "/slow":
                 import time as _t
                 _t.sleep(3)
             mid = msg.get("id")
             if "notifications/" in (msg.get("method") or ""):
-                raw = b""; ct = "application/json"; code = 202
+                raw = b""
+                ct = "application/json"
             elif mid == 1:
                 raw = json.dumps({"jsonrpc": "2.0", "id": 1,
                                   "result": {"protocolVersion": "2024-11-05",
@@ -148,7 +148,9 @@ def test_http_probe():
                                   "result": {"tools": [{"name": "echo"}, {"name": "add"}]}}).encode()
                 ct = "application/json"
             else:
-                self.send_response(404); self.end_headers(); return
+                self.send_response(404)
+                self.end_headers()
+                return
             if self.path == "/mcp-sse":
                 raw = b"data: " + raw + b"\n\n"
                 ct = "text/event-stream"
@@ -261,9 +263,12 @@ def test_only_skip_selectors():
 
 
 def test_env_secrets_detection():
-    mk = lambda n, **kw: discover.Server(n, "c.json", "cursor",
-        command=kw.get("command", "python3"), args=kw.get("args", []),
-        env=kw.get("env", {}), url=kw.get("url"))
+    def mk(n, **kw):
+        return discover.Server(
+            n, "c.json", "cursor",
+            command=kw.get("command", "python3"), args=kw.get("args", []),
+            env=kw.get("env", {}), url=kw.get("url"),
+        )
     assert any("bo\u015f" in w for w in fix.config_warnings([mk("e1", env={"A": ""})]))
     assert any("placeholder" in w for w in fix.config_warnings([mk("e2", env={"A": "YOUR_API_KEY"})]))
     assert any("OpenAI" in w for w in fix.config_warnings([mk("e3", env={"K": "sk-proj-abcdefghij1234567890XYZ"})]))

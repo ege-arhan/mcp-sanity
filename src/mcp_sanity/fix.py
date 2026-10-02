@@ -121,7 +121,6 @@ def get_safe_fixes(servers, probe_results) -> list[FixCandidate]:
     import difflib
     import stat
     fixes = []
-    status_map = {f"{s.client}/{s.name}": r for s, r in probe_results}
 
     # 1) NOT_EXECUTABLE -> chmod +x
     for s, r in probe_results:

@@ -1,11 +1,47 @@
 """Find MCP client config files and normalize their server entries."""
 from __future__ import annotations
 
+import ast
 import json
 import os
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    # ponytail: Python 3.10 stdlib lacks tomllib; basic TOML fallback handles standard MCP sections.
+    tomllib = None  # type: ignore
+
+
+def _parse_toml_fallback(text: str) -> dict:
+    out: dict = {}
+    current: dict = out
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = out
+            parts = [p.strip() for p in line[1:-1].split(".")]
+            for part in parts:
+                current = current.setdefault(part, {})
+            continue
+        if "=" in line and isinstance(current, dict):
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if v.lower() == "true":
+                val: object = True
+            elif v.lower() == "false":
+                val = False
+            else:
+                try:
+                    val = ast.literal_eval(v)
+                except Exception:
+                    val = v.strip("\"'")
+            current[k] = val
+    return out
 
 
 @dataclass
@@ -63,7 +99,10 @@ def load_opencode(path: Path) -> list[Server]:
 
 
 def load_codex(path: Path) -> list[Server]:
-    raw = tomllib.loads(path.read_text())
+    if tomllib is not None:
+        raw = tomllib.loads(path.read_text())
+    else:
+        raw = _parse_toml_fallback(path.read_text())
     out = []
     for name, s in (raw.get("mcp_servers") or {}).items():
         if not isinstance(s, dict):
