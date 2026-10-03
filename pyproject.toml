@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Live doctor for MCP server configs: spawn each server, run the real handshake, name the broken one."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Ege Arhan", email = "egearhany@gmail.com" }]
 keywords = ["mcp", "model-context-protocol", "cli", "diagnostics", "claude-desktop", "cursor", "codex"]
 classifiers = [
