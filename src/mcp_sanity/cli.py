@@ -225,6 +225,12 @@ def run(servers, timeout, use_json, sarif_path=None, retries=3, compare=False, f
 
 
 def main(argv=None):
+    if argv is None:
+        argv = list(sys.argv[1:])
+    else:
+        argv = list(argv)
+    if argv and argv[0] in ("scan", "doctor", "check"):
+        argv.pop(0)
     ap = argparse.ArgumentParser(prog="mcp-sanity",
                                  description="Live doctor for MCP server configs: spawn, handshake, name the broken one.")
     ap.add_argument("--config", "-c", action="append", default=[],
